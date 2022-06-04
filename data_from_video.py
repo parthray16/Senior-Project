@@ -27,10 +27,10 @@ def main():
         if ret == False:
             break
         
-        # Save Frame every four seconds into disk using imwrite method
-        if (frameId % frameRate == 0):
-            cv2.imwrite(pathOut + str(i) + '.jpg', frame)
-            i += 1
+        # Save Frame every second into disk using imwrite method
+        #if (frameId % frameRate == 0):
+        cv2.imwrite(pathOut + str(i) + '.jpg', frame)
+        i += 1
     
     cap.release()
     cv2.destroyAllWindows()

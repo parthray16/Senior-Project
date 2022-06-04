@@ -18,7 +18,12 @@ class BallDetection:
         """
         self.capture_index = capture_index
         self.model = self.load_model(model_name)
+        self.model.max_det = 1
         self.classes = self.model.names
+        self.score_counter = 0
+        self.lock_basket = False
+        self.basket_frame_count = 0
+        self.first_made_frame_time = 0
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print("Using Device: ", self.device)
 
@@ -36,7 +41,7 @@ class BallDetection:
         :return: Trained Pytorch model.
         """
         if model_name:
-            model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_name, force_reload=True)
+            model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_name)
         else:
             model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
         return model
@@ -48,7 +53,7 @@ class BallDetection:
         :return: Labels and Coordinates of objects detected by model in the frame.
         """
         self.model.to(self.device)
-        frame = [frame]
+        frame = [frame[..., ::-1]] # OpenCV image (BGR to RGB)
         results = self.model(frame)
         labels, cord = results.xyxyn[0][:, -1], results.xyxyn[0][:, :-1]
         return labels, cord
@@ -71,54 +76,25 @@ class BallDetection:
         labels, cord = results
         n = len(labels)
         x_shape, y_shape = frame.shape[1], frame.shape[0]
+        cv2.putText(frame, f'Made Baskets: {self.score_counter}', (x_shape // 2, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         for i in range(n):
             row = cord[i]
-            if row[4] >= 0.3:
+            if row[4] >= 0.25:
                 x1, y1, x2, y2 = int(row[0]*x_shape), int(row[1]*y_shape), int(row[2]*x_shape), int(row[3]*y_shape)
-                bgr = (0, 255, 0)
+                if labels[i] % 2 == 0:
+                    bgr = (0, 0, 255)
+                    self.basket_frame_count = 0
+                else:
+                    self.basket_frame_count += 1
+                    if self.basket_frame_count >= 3 and not self.lock_basket:
+                        self.score_counter += 1
+                        self.lock_basket = True
+                        self.basket_frame_count = 0
+                        self.first_made_frame_time = time()
+                    bgr = (0, 255, 0)
+                if self.lock_basket and 2 + self.first_made_frame_time < time():
+                    self.lock_basket = False
                 cv2.rectangle(frame, (x1, y1), (x2, y2), bgr, 2)
-                cv2.putText(frame, self.class_to_label(labels[i]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.9, bgr, 2)
-
-        return frame
-
-    def __call__(self):
-        """
-        This function is called when class is executed, it runs the loop to read the video frame by frame,
-        and write the output into a new file.
-        :return: void
-        """
-        cap = self.get_video_capture()
-        assert cap.isOpened()
-      
-        while True:
-          
-            ret, frame = cap.read()
-            assert ret
-            
-            frame = cv2.resize(frame, (608,	342))
-            
-            start_time = time()
-            results = self.score_frame(frame)
-            frame = self.plot_boxes(results, frame)
-            
-            end_time = time()
-            fps = 1/np.round(end_time - start_time, 2)
-            #print(f"Frames Per Second : {fps}")
-             
-            cv2.putText(frame, f'FPS: {int(fps)}', (20,70), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,255,0), 2)
-            
-            cv2.imshow('YOLOv5 Detection', frame)
- 
-            if cv2.waitKey(5) & 0xFF == 27:
-                break
-      
-        cap.release()
-        
-
-def main():
-    # Create a new object and execute.
-    detector = BallDetection(capture_index='Videos/' + sys.argv[1], model_name='best.pt')
-    detector()
-
-if __name__ == '__main__':
-    main()
+                cv2.putText(frame, self.class_to_label(labels[i]), (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, bgr, 2)
+        return frame 
+       
